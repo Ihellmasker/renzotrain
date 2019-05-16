@@ -3,80 +3,106 @@
 #include <FontConstants.au3>
 #include <WindowsConstants.au3>
 #include <AutoItConstants.au3>
+#include <ColorConstants.au3>
+
+#include <GDIPlus.au3>
+#Include <Misc.au3>
 #include <Include\ImageSearch.au3>
 #include <File.au3>
 ;just For debug _ArrayDisplay
 #include <Array.au3>
 
-; 
 Global $NoxWindow = 0
+Global $hGUI
 Global $consoleLog
-
+Global $btnCycleStart
+Global $btnCycleStop
 
 Global $completedLoops = 0
 Global $maxLoops = 1
-Global $stopCommands = False
 
-Global $idCycleStart
-Global $idCycleStop
+Global $sqImg, $sqGraphic
+
+Global $interrupt = False
 
 Opt("GUIOnEventMode", 1)
 
-_Main()
+; Create a GUI with various controls.
+$hGUI = GUICreate("The Renzotrain", 650, 600)
 
-Func _Main()
-   ; Create a GUI with various controls.
-   Local $hGUI = GUICreate("The Renzotrain", 600, 600)
+; Build Console Log
+$consoleLog = GUICtrlCreateEdit("[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Welcome to the Renzotrain!", 0, 500, 650, 100, $ES_AUTOVSCROLL + $WS_VSCROLL + $ES_READONLY)
+GUICtrlSetFont($consoleLog, 10, $FW_NORMAL, $GUI_FONTNORMAL, "Consolas")
+GUICtrlSetBkColor($consoleLog, $COLOR_WHITE)
 
-   ; Build Console Log
-   $consoleLog = GUICtrlCreateEdit("[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Welcome to the Renzotrain!", 0, 500, 600, 100, $ES_AUTOVSCROLL + $WS_VSCROLL + $ES_READONLY)
-   GUICtrlSetFont($consoleLog, 10, $FW_NORMAL, $GUI_FONTNORMAL, "Consolas")
-   GUICtrlSetBkColor($consoleLog, $COLOR_WHITE)
+_GDIPlus_StartUp()
+$sqImg = _GDIPlus_ImageLoadFromFile(@ScriptDir & "\Images\DFFOO_Squall.png")
+$sqGraphic = _GDIPlus_GraphicsCreateFromHWND($hGUI)
+WM_PAINT()
+GUIRegisterMsg($WM_PAINT, "WM_PAINT")
 
-   ; Tabs
-   GUICtrlCreateTab(0, 0, 600, 500)
+; Tabs
+GUICtrlCreateTab(0, 0, 450, 500)
 
-   ; Cycle Quest Tab
-   GUICtrlCreateTabItem("Cycle Quest")
-   $idCycleStart = GUICtrlCreateButton("Start", 20, 30, 120, 25)
-   $idCycleStop = GUICtrlCreateButton("Stop", 145, 30, 120, 25)
-   GUICtrlSetState($idCycleStop, $GUI_DISABLE)
-   GUICtrlCreateTabItem("Settings")
+; Cycle Quest Tab
+GUICtrlCreateTabItem("Auto Quest")
 
-   GUICtrlSetOnEvent($idCycleStart, "BtnCycleStart")
-   GUICtrlSetOnEvent($idCycleStop, "BtnCycleStop")
+$btnCycleStart = GUICtrlCreateButton("Start", 10, 30, 120, 40)
+GUICtrlSetFont($btnCycleStart, 10)
+GUICtrlSetOnEvent($btnCycleStart, "BtnCycleStart")
 
-   GUISetOnEvent($GUI_EVENT_CLOSE, "Exit")
+$btnCycleStop = GUICtrlCreateButton("Stop", 135, 30, 120, 40)
+GUICtrlSetFont($btnCycleStop, 10)
+GUICtrlSetState($btnCycleStop, $GUI_DISABLE)
+GUICtrlSetOnEvent($btnCycleStop, "BtnCycleStop")
 
-   GUISetState() ; display the GUI
 
-   While 1
-	  Sleep(1000)
-   WEnd
-EndFunc   ;==>Example
 
-Func BtnCycleStart()
-   GUICtrlSetState($idCycleStart, $GUI_DISABLE)
-   $stopCommands = False
-   AttachToNox()
-   If ValidWindow() Then
-	  GUICtrlSetState($idCycleStop, $GUI_ENABLE)
-	  GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Starting in 5 seconds", 1)
-	  $completedLoops = 0;
-	  WinActivate("NoxPlayer1-Android5.1.1")
-	  Sleep(5000)
-	  StartCycleQuest(0)
-   EndIf
+; Settings Tab
+GUICtrlCreateTabItem("Settings")
+
+GUISetOnEvent($GUI_EVENT_CLOSE, "_Exit")
+
+GUISetState() ; display the GUI
+
+GUIRegisterMsg($WM_COMMAND, "_WM_COMMAND")
+
+While 1
+   Sleep(10)
+WEnd
+
+_GDIPlus_GraphicsDispose($sqGraphic)
+_GDIPlus_ImageDispose($sqImg)
+_GDIPlus_ShutDown()
+
+Func _Exit()
+   Exit
 EndFunc
 
-Func BtnCycleStop()
-   GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Stopping", 1)
-   $stopCommands = True
-   GUICtrlSetState($idCycleStart, $GUI_ENABLE)
-   GUICtrlSetState($idCycleStop, $GUI_DISABLE)
-EndFunc
+Func WM_PAINT()
+   _WinAPI_RedrawWindow($hGUI, "", "", BitOR($RDW_INVALIDATE, $RDW_UPDATENOW, $RDW_FRAME));
+   _GDIPlus_GraphicsDrawImageRect($sqGraphic, $sqImg, 448, 25, 319, 476)
+   Return $GUI_RUNDEFMSG
+EndFunc   ;==>WM_PAINT
 
-Func MouseTouch($mX, $mY)
+Func _WM_COMMAND($hWnd, $Msg, $wParam, $lParam)
+   ; The Func 2 button was pressed so set the flag
+   If BitAND($wParam, 0x0000FFFF) =  $btnCycleStop Then $interrupt = true
+   Return $GUI_RUNDEFMSG
+EndFunc   ;==>_WM_COMMAND
+
+Func _Interrupt_Sleep($iDelay)
+   Local $iBegin = TimerInit()
+   Do
+      Sleep(10)
+      If $interrupt Then
+         Return True
+      EndIf
+   Until TimerDiff($iBegin) > $iDelay
+   Return False
+EndFunc   ;==>_Interrupt_Sleep
+
+Func _Mouse_Touch($mX, $mY)
    MouseMove($mX, $mY)
    MouseDown($MOUSE_CLICK_PRIMARY)
    Sleep(100)
@@ -87,9 +113,9 @@ Func AttachToNox()
    $NoxWindow = WinGetPos("NoxPlayer1-Android5.1.1")
    If @error Then Exit
    If ValidWindow() Then
-	  GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Attached to Nox", 1)
+      GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Attached to Nox", 1)
    Else
-	  GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Failed to attach to Nox. Is it minimised?", 1)
+	   GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Failed to attach to Nox. Is it minimised?", 1)
    EndIf
 EndFunc
 
@@ -103,161 +129,207 @@ Func ValidWindow()
    EndIf
 EndFunc
 
-Func StartCycleQuest($waitCount)
-   If $stopCommands Then Return
-   Local $iX = 0
-   Local $iY = 0
-   Local $iResult = 0
-   $iResult = _ImageSearchArea(@ScriptDir & "\Images\Cycle\QuestSelect.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
-   If $iResult Then
-	  $completedLoops = $completedLoops + 1
-	  MouseTouch($iX, $iY)
-	  Sleep(1000)
-	  StartQuest_Step1(0)
-   Else
-	  If $waitCount < 60 Then
-		 Sleep(1000)
-		 StartCycleQuest($waitCount + 1)
-	  Else
-		 GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Never found the Quest Button, Quitting", 1)
-	  EndIf
+
+
+Func BtnCycleStart()
+   GUICtrlSetState($btnCycleStart, $GUI_DISABLE)
+   $interrupt = False
+   AttachToNox()
+   If ValidWindow() Then
+      BeginCycleQuest()
    EndIf
 EndFunc
 
-Func StartQuest_Step1($waitCount) ; Press Begin
-   If $stopCommands Then Return
-   Local $iX = 0
-   Local $iY = 0
-   Local $iResult = 0
-   $iResult = _ImageSearchArea(@ScriptDir & "\Images\Cycle\1stBegin.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
-   If $iResult Then
-	  GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Starting Quest - Loop " & $completedLoops, 1)
-	  MouseTouch($iX, $iY)
-	  StartQuest_Step2(0)
-   Else
-	  If $waitCount < 5 Then
-		 Sleep(1000)
-		 StartQuest_Step1($waitCount + 1)
-	  Else
-		 GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Never found the Begin Button, Quitting", 1)
-	  EndIf
+Func BtnCycleStop()
+   GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Stopping", 1)
+   $interrupt = True
+   GUICtrlSetState($btnCycleStart, $GUI_ENABLE)
+   GUICtrlSetState($btnCycleStop, $GUI_DISABLE)
+EndFunc
+
+
+
+Func BeginCycleQuest()
+   GUICtrlSetState($btnCycleStop, $GUI_ENABLE)
+   GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Starting in 3 seconds", 1)
+   $completedLoops = 0;
+   WinActivate("NoxPlayer1-Android5.1.1")
+   If Not _Interrupt_Sleep(3000) Then
+      FindCycleQuest(0)
    EndIf
 EndFunc
 
-Func StartQuest_Step2($waitCount) ; Press Begin
-   If $stopCommands Then Return
+
+
+Func FindCycleQuest($timeout)
+   If $interrupt Then Return
    Local $iX = 0
    Local $iY = 0
    Local $iResult = 0
-   $iResult = _ImageSearchArea(@ScriptDir & "\Images\Cycle\LastOnline.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
+   GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Searching for the Quest Button", 1)
+   $iResult = _ImageSearchArea(@ScriptDir & "\Images\Quests\Cycle.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
    If $iResult Then
-	  GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Finding a friend", 1)
-	  MouseTouch($iX, $iY)
-	  StartQuest_Step3(0)
+      $completedLoops = $completedLoops + 1
+      _Mouse_Touch($iX, $iY)
+      If Not _Interrupt_Sleep(1000) Then
+         StartQuest_Step1(0)
+      EndIf
    Else
-	  If $waitCount < 5 Then
-		 Sleep(1000)
-		 StartQuest_Step2($waitCount + 1)
-	  Else
-		 GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Never found a Friend Button, Quitting", 1)
-	  EndIf
+      If $timeout < 60 Then
+         If Not _Interrupt_Sleep(1000) Then
+            FindCycleQuest($timeout + 1)
+         EndIf
+      Else
+         GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Never found the Quest Button, Quitting", 1)
+      EndIf
    EndIf
 EndFunc
 
-Func StartQuest_Step3($waitCount) ; Press Begin
-   If $stopCommands Then Return
+
+
+Func StartQuest_Step1($timeout) ; Press Begin
+   If $interrupt Then Return
    Local $iX = 0
    Local $iY = 0
    Local $iResult = 0
-   $iResult = _ImageSearchArea(@ScriptDir & "\Images\Cycle\2ndBegin.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
+   $iResult = _ImageSearchArea(@ScriptDir & "\Images\GameUI\1stBegin.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
    If $iResult Then
-	  GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Starting Quest", 1)
-	  MouseTouch($iX, $iY)
-	  StartCombat()
+      GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Finding a friend", 1)
+      _Mouse_Touch($iX, $iY)
+      StartQuest_Step2(0)
    Else
-	  If $waitCount < 5 Then
-		 Sleep(1000)
-		 StartQuest_Step3($waitCount + 1)
-	  Else
-		 GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Never found the Begin Button, Quitting", 1)
-	  EndIf
+      If $timeout < 5 Then
+         If Not _Interrupt_Sleep(1000) Then
+            StartQuest_Step1($timeout + 1)
+         EndIf
+      Else
+         GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Never found the Begin Button, Quitting", 1)
+      EndIf
    EndIf
 EndFunc
+
+Func StartQuest_Step2($timeout) ; Press Select a Friend
+   If $interrupt Then Return
+   Local $iX = 0
+   Local $iY = 0
+   Local $iResult = 0
+   $iResult = _ImageSearchArea(@ScriptDir & "\Images\GameUI\LastOnline.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
+   If $iResult Then
+      _Mouse_Touch($iX, $iY)
+      StartQuest_Step3(0)
+   Else
+      If $timeout < 5 Then
+         If Not _Interrupt_Sleep(1000) Then
+            StartQuest_Step2($timeout + 1)
+         EndIf
+      Else
+         GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Never found a Friend :(, Quitting", 1)
+      EndIf
+   EndIf
+EndFunc
+
+Func StartQuest_Step3($timeout) ; Press Begin again
+   If $interrupt Then Return
+   Local $iX = 0
+   Local $iY = 0
+   Local $iResult = 0
+   $iResult = _ImageSearchArea(@ScriptDir & "\Images\GameUI\2ndBegin.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
+   If $iResult Then
+      GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Starting Quest - Loop " & $completedLoops, 1)
+      _Mouse_Touch($iX, $iY)
+      StartCombat()
+   Else
+      If $timeout < 5 Then
+         If Not _Interrupt_Sleep(1000) Then
+            StartQuest_Step3($timeout + 1)
+         EndIf
+      Else
+         GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Never found the Begin Button, Quitting", 1)
+      EndIf
+   EndIf
+EndFunc
+
+
 
 Func StartCombat()
-   If $stopCommands Then Return
-   Combat_Attack(0)
+   If $interrupt Then Return
+   If Not _Interrupt_Sleep(3000) Then
+      Combat_Attack(0)
+   EndIf
 EndFunc
 
-Func Combat_Attack($waitCount)
-   If $stopCommands Then Return
-   GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Attempting BRV " & $waitCount, 1)
+Func Combat_Attack($timeout)
+   If $interrupt Then Return
    Local $iX = 0
    Local $iY = 0
    Local $iResult = 0
-
    Local $img = ""
-   If NOT Mod($waitCount, 2) Then
-	  $img = @ScriptDir & "\Images\Cycle\BrvAttackPhys.png"
+   If Mod($timeout, 3) = 0 Then
+	   $img = @ScriptDir & "\Images\Combat\BRVAttackMag.png"
+   ElseIf Mod($timeout, 3) = 1 Then
+	   $img = @ScriptDir & "\Images\Combat\BRVAttackPhy.png"
    Else
-	  $img = @ScriptDir & "\Images\Cycle\BrvAttackMag.png"
+	   $img = @ScriptDir & "\Images\Combat\BRVAttackRan.png"
    EndIf
    $iResult = _ImageSearchArea($img, 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
    If $iResult Then
-	  If Combat_AttackRenzo(0) Then
-		 Combat_Attack(0)
-	  Else
-		 GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Doing BRV Attack", 1)
-		 MouseTouch($iX, $iY)
-		 Sleep(1000)
-		 Combat_Attack(0)
-	  EndIf
+      If Combat_AttackRenzo(0) Then
+         Combat_Attack(0)
+      Else
+         GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Doing BRV Attack", 1)
+         _Mouse_Touch($iX, $iY)
+         If Not _Interrupt_Sleep(3000) Then
+            Combat_Attack(0)
+         EndIf
+      EndIf
    Else
-	  If $waitCount < 60 Then
-		 If CheckIfCombatEnd() Then
-			EndCombat(0)
-		 Else
-			Sleep(1000)
-			Combat_Attack($waitCount + 1)
-		 EndIf
-	  Else
-		 GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Never found an attack after 60 seconds, attempting to leave", 1)
-		 EndCombat(0)
-	  EndIf
+      If $timeout < 120 Then
+         If CheckIfCombatEnd() Then
+            EndCombat(0)
+         Else
+            If Not _Interrupt_Sleep(500) Then
+               Combat_Attack($timeout + 1)
+            EndIf
+         EndIf
+      Else
+         GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Never found an attack after 60 seconds, attempting to leave", 1)
+         EndCombat(0)
+      EndIf
    EndIf
 EndFunc
 
-Func Combat_AttackRenzo($waitCount)
-   If $stopCommands Then Return
-   GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Attempting Renz " & $waitCount, 1)
+Func Combat_AttackRenzo($timeout)
+   If $interrupt Then Return
    Local $iX = 0
    Local $iY = 0
    Local $iResult = 0
-   $iResult = _ImageSearchArea(@ScriptDir & "\Images\Cycle\RenzokukenPlus.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
+   $iResult = _ImageSearchArea(@ScriptDir & "\Images\Combat\RenzokukenPlus.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
    If $iResult Then
-	  GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] RRRRRenzooooo", 1)
-	  MouseTouch($iX, $iY)
-	  Sleep(2000)
-	  Return True
+      GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] RRRRRenzooooo", 1)
+      _Mouse_Touch($iX, $iY)
+      If Not _Interrupt_Sleep(300) Then
+         Return True
+      EndIf
    Else
-	  If $waitCount < 10 Then
-		 Sleep(1000)
-		 Local $state = Combat_AttackRenzo($waitCount + 1)
-		 If $state Then
-			Return True
-		 EndIf
-	  Else
-		 Return False
-	  EndIf
+      If $timeout < 6 Then
+         If Not _Interrupt_Sleep(500) Then
+            Local $state = Combat_AttackRenzo($timeout + 1)
+            If $state Then
+               Return True
+            EndIf
+         EndIf
+      Else
+         Return False
+      EndIf
    EndIf
 EndFunc
 
 Func CheckIfCombatEnd()
-   If $stopCommands Then Return
+   If $interrupt Then Return
    Local $iX = 0
    Local $iY = 0
    Local $iResult = 0
-   $iResult = _ImageSearchArea(@ScriptDir & "\Images\Cycle\Next.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
+   $iResult = _ImageSearchArea(@ScriptDir & "\Images\GameUI\Next.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
    If $iResult Then
 	  GUICtrlSetData($consoleLog, @CRLF & "[" & @HOUR & ":" & @MIN & ":" & @SEC & "] Combat over", 1)
 	  Return True
@@ -266,35 +338,42 @@ Func CheckIfCombatEnd()
    EndIf
 EndFunc
 
-Func EndCombat($waitCount)
-   If $stopCommands Then Return
+Func EndCombat($timeout)
+   If $interrupt Then Return
    Local $iX = 0
    Local $iY = 0
    Local $iResult = 0
-   $iResult = _ImageSearchArea(@ScriptDir & "\Images\Cycle\Next.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
+   $iResult = _ImageSearchArea(@ScriptDir & "\Images\GameUI\Next.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
    If $iResult Then
-	  MouseTouch($iX, $iY)
+	  _Mouse_Touch($iX, $iY)
 	  EndCombat(0)
    Else
-	  If $waitCount < 60 Then
-		 If CheckIfBackToCycleQuestSelect() Then
-			StartCycleQuest(0)
-		 Else
-			Sleep(1000)
-			EndCombat($waitCount + 1)
-		 EndIf
-	  Else
-		 EndCombat(0)
-	  EndIf
+      $iResult = _ImageSearchArea(@ScriptDir & "\Images\GameUI\Cross.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
+      If $iResult Then
+         _Mouse_Touch($iX, $iY)
+         EndCombat(0)
+      Else
+         If $timeout < 60 Then
+            If CheckIfBackToCycleQuestSelect() Then
+               FindCycleQuest(0)
+            Else
+               If Not _Interrupt_Sleep(1000) Then
+                  EndCombat($timeout + 1)
+               EndIf
+            EndIf
+         Else
+            EndCombat(0)
+         EndIf
+      EndIf
    EndIf
 EndFunc
 
 Func CheckIfBackToCycleQuestSelect()
-   If $stopCommands Then Return
+   If $interrupt Then Return
    Local $iX = 0
    Local $iY = 0
    Local $iResult = 0
-   $iResult = _ImageSearchArea(@ScriptDir & "\Images\Cycle\QuestSelect.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
+   $iResult = _ImageSearchArea(@ScriptDir & "\Images\Quests\Cycle.png", 1, $NoxWindow[0], $NoxWindow[1], $NoxWindow[0] + $NoxWindow[2], $NoxWindow[1] + $NoxWindow[3], $iX, $iY, 50)
    If $iResult Then
 	  Return True
    Else
